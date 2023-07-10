@@ -114,6 +114,16 @@ class TestAmphoraDriver(base.TestRpc):
         mock_cast.assert_called_with({}, 'failover_load_balancer', **payload)
 
     @mock.patch('oslo_messaging.RPCClient.cast')
+    def test_loadbalancer_failover_with_flavor(self, mock_cast):
+        self.amp_driver.loadbalancer_failover_with_flavor(
+            self.sample_data.lb_id,
+            self.sample_data.flavor_id)
+        payload = {consts.LOAD_BALANCER_ID: self.sample_data.lb_id,
+                   consts.FLAVOR_ID: self.sample_data.flavor_id}
+        mock_cast.assert_called_with({}, 'failover_load_balancer_with_flavor',
+                                     **payload)
+
+    @mock.patch('oslo_messaging.RPCClient.cast')
     def test_loadbalancer_update(self, mock_cast):
         old_provider_lb = driver_dm.LoadBalancer(
             loadbalancer_id=self.sample_data.lb_id)

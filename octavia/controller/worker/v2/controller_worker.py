@@ -1161,13 +1161,14 @@ class ControllerWorker:
                   'failover.', load_balancer.topology)
         raise exceptions.InvalidTopology(topology=load_balancer.topology)
 
-    def failover_loadbalancer(self, load_balancer_id):
+    def failover_loadbalancer(self, load_balancer_id, resize_flavor_id=None):
         """Perform failover operations for a load balancer.
 
         Note: This expects the load balancer to already be in
         provisioning_status=PENDING_UPDATE state.
 
         :param load_balancer_id: ID for load balancer to failover
+        :param resize_flavor_id: New load balancer flavor ID
         :returns: None
         :raises octavia.common.exceptions.NotFound: The load balancer was not
                                                     found.
@@ -1204,10 +1205,17 @@ class ControllerWorker:
             # here for the amphora to be created with the correct
             # configuration.
             flavor = {}
-            if lb.flavor_id:
+            if lb.flavor_id or resize_flavor_id is not None:
+                if resize_flavor_id is not None:
+                    LOG.info('Failover in resize mode for flavor %s',
+                             resize_flavor_id)
+                    flavor_id = resize_flavor_id
+                else:
+                    flavor_id = lb.flavor_id
+
                 with session.begin():
                     flavor = self._flavor_repo.get_flavor_metadata_dict(
-                        session, lb.flavor_id)
+                        session, flavor_id)
             flavor[constants.LOADBALANCER_TOPOLOGY] = lb.topology
 
             if lb:
@@ -1226,6 +1234,9 @@ class ControllerWorker:
                              constants.LOADBALANCER_ID: lb.id,
                              constants.FLAVOR: flavor}
 
+            if resize_flavor_id is not None:
+                stored_params[constants.NEW_FLAVOR_ID] = resize_flavor_id
+
             if lb.availability_zone:
                 with session.begin():
                     stored_params[constants.AVAILABILITY_ZONE] = (
@@ -1236,7 +1247,7 @@ class ControllerWorker:
 
             self.run_flow(
                 flow_utils.get_failover_LB_flow, amps, provider_lb_dict,
-                store=stored_params)
+                (resize_flavor_id is not None), store=stored_params)
 
             LOG.info('Failover of load balancer %s completed successfully.',
                      lb.id)

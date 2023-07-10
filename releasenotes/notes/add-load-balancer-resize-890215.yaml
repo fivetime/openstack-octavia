@@ -1,0 +1,7 @@
+---
+features:
+  - |
+    Added support for resizing an existing amphora load balancer to another
+    Octavia flavor with the same provider and topology. The resize operation
+    uses the failover flow to replace the amphorae and then records the new
+    flavor on the load balancer.

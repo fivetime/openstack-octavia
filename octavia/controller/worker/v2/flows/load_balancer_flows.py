@@ -407,7 +407,7 @@ class LoadBalancerFlows:
 
         return update_LB_flow
 
-    def get_failover_LB_flow(self, amps, lb):
+    def get_failover_LB_flow(self, amps, lb, is_resize):
         """Failover a load balancer.
 
         1. Validate the VIP port is correct and present.
@@ -421,7 +421,8 @@ class LoadBalancerFlows:
         9. Configure the listeners on the new amphorae.
         10. Configure the VRRP on the new amphorae.
         11. Reload the listener configurations to pick up VRRP changes.
-        12. Mark the load balancer back to ACTIVE.
+        12. Update the flavor id in DB (only if it's a resizing)
+        13. Mark the load balancer back to ACTIVE.
 
         :returns: The flow that will provide the failover.
         """
@@ -756,10 +757,24 @@ class LoadBalancerFlows:
         # TODO(johnsom) Fix this as part of
         #               https://storyboard.openstack.org/#!/story/2007077
 
+        # Update Flavor in DB
+        if is_resize:
+            failover_LB_flow.add(
+                database_tasks.UpdateFlavorIdInDB(
+                    requires=(constants.LOADBALANCER_ID,
+                              constants.NEW_FLAVOR_ID)))
+
         # Mark LB ACTIVE
         failover_LB_flow.add(
             database_tasks.MarkLBActiveInDB(mark_subobjects=True,
                                             requires=constants.LOADBALANCER))
+
+        if is_resize and CONF.controller_worker.event_notifications:
+            failover_LB_flow.add(
+                notification_tasks.SendResizeNotification(
+                    requires=constants.LOADBALANCER
+                )
+            )
 
         return failover_LB_flow
 

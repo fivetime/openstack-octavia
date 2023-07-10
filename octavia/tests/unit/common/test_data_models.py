@@ -46,6 +46,7 @@ class TestDataModels(base.TestCase):
         self.IMAGE_ID = uuidutils.generate_uuid()
         self.COMPUTE_FLAVOR = uuidutils.generate_uuid()
         self.TLS_CONTAINER_ID = uuidutils.generate_uuid()
+        self.FLAVOR_ID = uuidutils.generate_uuid()
 
         self.LB_obj = data_models.LoadBalancer(
             id=self.LB_ID,
@@ -62,6 +63,7 @@ class TestDataModels(base.TestCase):
             amphorae=[],
             pools=[],
             server_group_id=self.SERVER_GROUP_ID,
+            flavor_id=self.FLAVOR_ID,
             created_at=self.CREATED_AT,
             updated_at=self.UPDATED_AT)
 
@@ -157,6 +159,7 @@ class TestDataModels(base.TestCase):
         new_enabled = False
         new_vrrp_group = 2
         new_topology = 'new-infinite'
+        new_flavor_id = uuidutils.generate_uuid()
 
         reference_LB_obj = data_models.LoadBalancer(
             id=new_id,
@@ -173,6 +176,7 @@ class TestDataModels(base.TestCase):
             amphorae=[],
             pools=[],
             server_group_id=new_server_group_id,
+            flavor_id=new_flavor_id,
             created_at=new_created_at,
             updated_at=new_updated_at)
 
@@ -187,6 +191,7 @@ class TestDataModels(base.TestCase):
             'vrrp_group': new_vrrp_group,
             'topology': new_topology,
             'server_group_id': new_server_group_id,
+            'flavor_id': new_flavor_id,
             'created_at': new_created_at,
             'updated_at': new_updated_at
         }

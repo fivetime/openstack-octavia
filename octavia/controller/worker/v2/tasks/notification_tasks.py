@@ -50,3 +50,7 @@ class SendCreateNotification(BaseNotificationTask):
 
 class SendDeleteNotification(BaseNotificationTask):
     event_type = 'octavia.loadbalancer.delete.end'
+
+
+class SendResizeNotification(BaseNotificationTask):
+    event_type = 'octavia.loadbalancer.resize.end'

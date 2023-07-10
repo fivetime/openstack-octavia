@@ -178,6 +178,10 @@ class LoadBalancerRootPUT(types.BaseType):
     loadbalancer = wtypes.wsattr(LoadBalancerPUT)
 
 
+class LoadBalancerResizeRootPUT(types.BaseType):
+    new_flavor_id = wtypes.wsattr(wtypes.UuidType(), mandatory=True)
+
+
 class LoadBalancerStatusResponse(BaseLoadBalancerType):
     """Defines which attributes are to be shown on status response."""
     id = wtypes.wsattr(wtypes.UuidType())

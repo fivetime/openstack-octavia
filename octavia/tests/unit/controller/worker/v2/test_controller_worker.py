@@ -41,6 +41,7 @@ L7RULE_ID = uuidutils.generate_uuid()
 PROJECT_ID = uuidutils.generate_uuid()
 LISTENER_ID = uuidutils.generate_uuid()
 FLAVOR_ID = uuidutils.generate_uuid()
+NEW_FLAVOR_ID = uuidutils.generate_uuid()
 SERVER_GROUP_ID = uuidutils.generate_uuid()
 AZ_ID = uuidutils.generate_uuid()
 HEALTH_UPDATE_DICT = {'delay': 1, 'timeout': 2}
@@ -2229,7 +2230,7 @@ class TestControllerWorker(base.TestCase):
 
         cw.services_controller.run_poster.assert_called_once_with(
             flow_utils.get_failover_LB_flow, [_amphora_mock], provider_lb,
-            store=expected_flow_store)
+            False, store=expected_flow_store)
 
     @mock.patch('octavia.controller.worker.v2.controller_worker.'
                 'ControllerWorker._get_amphorae_for_failover')
@@ -2280,7 +2281,7 @@ class TestControllerWorker(base.TestCase):
 
         cw.services_controller.run_poster.assert_called_once_with(
             flow_utils.get_failover_LB_flow, [_amphora_mock, _amphora_mock],
-            provider_lb, store=expected_flow_store)
+            provider_lb, False, store=expected_flow_store)
 
     @mock.patch('octavia.db.repositories.LoadBalancerRepository.update')
     def test_failover_loadbalancer_no_lb(self,
@@ -2381,7 +2382,7 @@ class TestControllerWorker(base.TestCase):
 
         cw.services_controller.run_poster.assert_called_once_with(
             flow_utils.get_failover_LB_flow, [_amphora_mock], provider_lb,
-            store=expected_flow_store)
+            False, store=expected_flow_store)
 
     @mock.patch('octavia.db.repositories.FlavorRepository.'
                 'get_flavor_metadata_dict', return_value={'taste': 'spicy'})
@@ -2435,7 +2436,7 @@ class TestControllerWorker(base.TestCase):
 
         cw.services_controller.run_poster.assert_called_once_with(
             flow_utils.get_failover_LB_flow, [_amphora_mock, _amphora_mock],
-            provider_lb, store=expected_flow_store)
+            provider_lb, False, store=expected_flow_store)
 
     def test_amphora_cert_rotation(self,
                                    mock_api_get_session,
@@ -2548,3 +2549,60 @@ class TestControllerWorker(base.TestCase):
         worker.jobboard_driver = None
         # Must not raise
         worker.shutdown()
+
+    @mock.patch('octavia.db.repositories.FlavorRepository.'
+                'get_flavor_metadata_dict', return_value={
+                    'taste': 'not_spicy'})
+    @mock.patch('octavia.controller.worker.v2.controller_worker.'
+                'ControllerWorker._get_amphorae_for_failover')
+    def test_resize_loadbalancer(self,
+                                 mock_get_amps_for_failover,
+                                 mock_get_flavor_meta,
+                                 mock_api_get_session,
+                                 mock_dyn_log_listener,
+                                 mock_taskflow_load,
+                                 mock_pool_repo_get,
+                                 mock_member_repo_get,
+                                 mock_l7rule_repo_get,
+                                 mock_l7policy_repo_get,
+                                 mock_listener_repo_get,
+                                 mock_lb_repo_get,
+                                 mock_health_mon_repo_get,
+                                 mock_amp_repo_get):
+        _flow_mock.reset_mock()
+        load_balancer_mock = mock.MagicMock()
+        load_balancer_mock.listeners = [_listener_mock]
+        load_balancer_mock.topology = constants.TOPOLOGY_SINGLE
+        load_balancer_mock.flavor_id = uuidutils.generate_uuid()
+        load_balancer_mock.availability_zone = None
+        load_balancer_mock.vip = _vip_mock
+        mock_lb_repo_get.return_value = load_balancer_mock
+        mock_get_amps_for_failover.return_value = [_amphora_mock,
+                                                   _amphora_mock]
+        provider_lb = provider_utils.db_loadbalancer_to_provider_loadbalancer(
+            load_balancer_mock).to_dict()
+
+        expected_flavor = {'taste': 'not_spicy',
+                           constants.LOADBALANCER_TOPOLOGY:
+                           load_balancer_mock.topology}
+        provider_lb[constants.FLAVOR] = expected_flavor
+        expected_flow_store = {constants.LOADBALANCER: provider_lb,
+                               constants.BUILD_TYPE_PRIORITY:
+                                   constants.LB_CREATE_FAILOVER_PRIORITY,
+                               constants.LOADBALANCER_ID:
+                                   load_balancer_mock.id,
+                               constants.SERVER_GROUP_ID:
+                                   load_balancer_mock.server_group_id,
+                               constants.FLAVOR: expected_flavor,
+                               constants.NEW_FLAVOR_ID: NEW_FLAVOR_ID,
+                               constants.AVAILABILITY_ZONE: {}}
+
+        cw = controller_worker.ControllerWorker()
+        cw.failover_loadbalancer(LB_ID, resize_flavor_id=NEW_FLAVOR_ID)
+
+        mock_lb_repo_get.assert_called_once_with(_db_session, id=LB_ID)
+        mock_get_amps_for_failover.assert_called_once_with(load_balancer_mock)
+
+        cw.services_controller.run_poster.assert_called_once_with(
+            flow_utils.get_failover_LB_flow, [_amphora_mock, _amphora_mock],
+            provider_lb, True, store=expected_flow_store)

@@ -83,8 +83,8 @@ def get_delete_amphora_flow(amphora, retry_attempts=None, retry_interval=None):
                                              retry_interval)
 
 
-def get_failover_LB_flow(amps, lb):
-    return LB_FLOWS.get_failover_LB_flow(amps, lb)
+def get_failover_LB_flow(amps, lb, is_resize):
+    return LB_FLOWS.get_failover_LB_flow(amps, lb, is_resize)
 
 
 def get_failover_amphora_flow(amphora_dict, lb_amp_count, flavor_dict=None):

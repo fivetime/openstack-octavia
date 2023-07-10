@@ -24,6 +24,8 @@ from octavia.common import constants
 from octavia.common import exceptions
 from octavia.controller.worker.v2.flows import flow_utils
 from octavia.controller.worker.v2.flows import load_balancer_flows
+from octavia.controller.worker.v2.tasks import database_tasks
+from octavia.controller.worker.v2.tasks import notification_tasks
 import octavia.tests.unit.base as base
 
 
@@ -337,7 +339,9 @@ class TestLoadBalancerFlows(base.TestCase):
         lb_mock.id = uuidutils.generate_uuid()
         lb_mock.topology = constants.TOPOLOGY_SINGLE
 
-        failover_flow = self.LBFlow.get_failover_LB_flow(amphorae, lb_mock)
+        failover_flow = self.LBFlow.get_failover_LB_flow(amphorae,
+                                                         lb_mock,
+                                                         False)
 
         self.assertIsInstance(failover_flow, flow.Flow)
 
@@ -416,7 +420,9 @@ class TestLoadBalancerFlows(base.TestCase):
         lb_mock.id = uuidutils.generate_uuid()
         lb_mock.topology = constants.TOPOLOGY_ACTIVE_STANDBY
 
-        failover_flow = self.LBFlow.get_failover_LB_flow(amphorae, lb_mock)
+        failover_flow = self.LBFlow.get_failover_LB_flow(amphorae,
+                                                         lb_mock,
+                                                         False)
 
         self.assertIsInstance(failover_flow, flow.Flow)
 
@@ -569,3 +575,164 @@ class TestLoadBalancerFlows(base.TestCase):
 
         self.assertIsInstance(delete_flow, unordered_flow.Flow)
         self.assertEqual(8, len(delete_flow))
+
+    def _test_get_failover_LB_flow_no_amps_act_stdby_resize(self, amphorae):
+        lb_mock = mock.MagicMock()
+        lb_mock.id = uuidutils.generate_uuid()
+        lb_mock.topology = constants.TOPOLOGY_ACTIVE_STANDBY
+
+        failover_flow = self.LBFlow.get_failover_LB_flow(amphorae,
+                                                         lb_mock,
+                                                         True)
+
+        self.assertIsInstance(failover_flow, flow.Flow)
+
+        self.assertIn(constants.AVAILABILITY_ZONE, failover_flow.requires)
+        self.assertIn(constants.BUILD_TYPE_PRIORITY, failover_flow.requires)
+        self.assertIn(constants.FLAVOR, failover_flow.requires)
+        self.assertIn(constants.LOADBALANCER, failover_flow.requires)
+        self.assertIn(constants.LOADBALANCER_ID, failover_flow.requires)
+
+        self.assertIn(constants.UPDATED_PORTS, failover_flow.provides)
+        self.assertIn(constants.AMPHORA, failover_flow.provides)
+        self.assertIn(constants.AMPHORA_ID, failover_flow.provides)
+        self.assertIn(constants.AMPHORAE_NETWORK_CONFIG,
+                      failover_flow.provides)
+        self.assertIn(constants.BASE_PORT, failover_flow.provides)
+        self.assertIn(constants.COMPUTE_ID, failover_flow.provides)
+        self.assertIn(constants.COMPUTE_OBJ, failover_flow.provides)
+        self.assertIn(constants.DELTA, failover_flow.provides)
+        self.assertIn(constants.LOADBALANCER, failover_flow.provides)
+        self.assertIn(constants.SERVER_PEM, failover_flow.provides)
+        self.assertIn(constants.VIP, failover_flow.provides)
+        self.assertIn(constants.ADDITIONAL_VIPS, failover_flow.provides)
+        self.assertIn(constants.VIP_SG_ID, failover_flow.provides)
+
+        self.assertEqual(7, len(failover_flow.requires),
+                         failover_flow.requires)
+        self.assertEqual(17, len(failover_flow.provides),
+                         failover_flow.provides)
+
+    @mock.patch('octavia.common.rpc.NOTIFIER',
+                new_callable=MockNOTIFIER)
+    def test_get_failover_LB_flow_no_amps_act_stdby_resize(
+            self,
+            mock_get_net_driver,
+            mock_notifier):
+        self._test_get_failover_LB_flow_no_amps_act_stdby_resize([])
+
+    @mock.patch('octavia.common.rpc.NOTIFIER',
+                new_callable=MockNOTIFIER)
+    def test_get_failover_LB_flow_one_amps_act_stdby_resize(
+            self,
+            amphorae,
+            mock_notifier):
+        amphora_dict = {constants.ID: uuidutils.generate_uuid(),
+                        constants.ROLE: constants.ROLE_MASTER,
+                        constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                        constants.VRRP_PORT_ID: None, constants.VRRP_IP: None}
+
+        self._test_get_failover_LB_flow_no_amps_act_stdby_resize(
+            [amphora_dict])
+
+    @mock.patch('octavia.common.rpc.NOTIFIER',
+                new_callable=MockNOTIFIER)
+    def test_get_failover_LB_flow_two_amps_act_stdby_resize(
+            self,
+            mock_get_net_driver,
+            mock_notifier):
+        amphora_dict = {constants.ID: uuidutils.generate_uuid(),
+                        constants.ROLE: constants.ROLE_MASTER,
+                        constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                        constants.VRRP_PORT_ID: uuidutils.generate_uuid(),
+                        constants.VRRP_IP: '192.0.2.46'}
+        amphora2_dict = {constants.ID: uuidutils.generate_uuid(),
+                         constants.ROLE: constants.ROLE_BACKUP,
+                         constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                         constants.VRRP_PORT_ID: uuidutils.generate_uuid(),
+                         constants.VRRP_IP: '2001:db8::46'}
+
+        self._test_get_failover_LB_flow_no_amps_act_stdby_resize(
+            [amphora_dict, amphora2_dict])
+
+    @mock.patch('octavia.common.rpc.NOTIFIER',
+                new_callable=MockNOTIFIER)
+    def test_get_failover_LB_flow_three_amps_act_stdby_resize(
+            self,
+            mock_get_net_driver,
+            mock_notifier):
+        amphora_dict = {constants.ID: uuidutils.generate_uuid(),
+                        constants.ROLE: constants.ROLE_MASTER,
+                        constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                        constants.VRRP_PORT_ID: uuidutils.generate_uuid(),
+                        constants.VRRP_IP: '192.0.2.46'}
+        amphora2_dict = {constants.ID: uuidutils.generate_uuid(),
+                         constants.ROLE: constants.ROLE_BACKUP,
+                         constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                         constants.VRRP_PORT_ID: uuidutils.generate_uuid(),
+                         constants.VRRP_IP: '2001:db8::46'}
+        amphora3_dict = {constants.ID: uuidutils.generate_uuid(),
+                         constants.ROLE: 'bogus',
+                         constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                         constants.VRRP_PORT_ID: None, constants.VRRP_IP: None}
+
+        self._test_get_failover_LB_flow_no_amps_act_stdby_resize(
+            [amphora_dict, amphora2_dict, amphora3_dict])
+
+    @mock.patch('octavia.common.rpc.NOTIFIER',
+                new_callable=MockNOTIFIER)
+    def test_get_failover_LB_flow_two_amps_bogus_act_stdby_resize(
+            self, mock_get_net_driver, mock_notifier):
+        amphora_dict = {constants.ID: uuidutils.generate_uuid(),
+                        constants.ROLE: 'bogus',
+                        constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                        constants.VRRP_PORT_ID: uuidutils.generate_uuid(),
+                        constants.VRRP_IP: '192.0.2.46'}
+        amphora2_dict = {constants.ID: uuidutils.generate_uuid(),
+                         constants.ROLE: constants.ROLE_MASTER,
+                         constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                         constants.VRRP_PORT_ID: uuidutils.generate_uuid(),
+                         constants.VRRP_IP: '2001:db8::46'}
+
+        self._test_get_failover_LB_flow_no_amps_act_stdby_resize(
+            [amphora_dict, amphora2_dict])
+
+    @mock.patch('octavia.common.rpc.NOTIFIER',
+                new_callable=MockNOTIFIER)
+    def test_get_failover_LB_flow_two_amps_standalone_act_stdby_resize(
+            self, mock_get_net_driver, mock_notifier):
+        amphora_dict = {constants.ID: uuidutils.generate_uuid(),
+                        constants.ROLE: constants.ROLE_STANDALONE,
+                        constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                        constants.VRRP_PORT_ID: uuidutils.generate_uuid(),
+                        constants.VRRP_IP: '192.0.2.46'}
+
+        amphora2_dict = {constants.ID: uuidutils.generate_uuid(),
+                         constants.ROLE: constants.ROLE_MASTER,
+                         constants.COMPUTE_ID: uuidutils.generate_uuid(),
+                         constants.VRRP_PORT_ID: uuidutils.generate_uuid(),
+                         constants.VRRP_IP: '2001:db8::46'}
+
+        self._test_get_failover_LB_flow_no_amps_act_stdby_resize(
+            [amphora_dict, amphora2_dict])
+
+    @mock.patch('octavia.common.rpc.NOTIFIER',
+                new_callable=MockNOTIFIER)
+    def test_resize_notification_follows_mark_active(
+            self, mock_get_net_driver, mock_notifier):
+        self.conf.config(group='controller_worker', event_notifications=True)
+        lb_mock = mock.MagicMock()
+        lb_mock.id = uuidutils.generate_uuid()
+        lb_mock.topology = constants.TOPOLOGY_SINGLE
+
+        failover_flow = self.LBFlow.get_failover_LB_flow([], lb_mock, True)
+        flow_tasks = list(failover_flow)
+        mark_active_index = next(
+            index for index, flow_task in enumerate(flow_tasks)
+            if isinstance(flow_task, database_tasks.MarkLBActiveInDB))
+        notification_index = next(
+            index for index, flow_task in enumerate(flow_tasks)
+            if isinstance(flow_task,
+                          notification_tasks.SendResizeNotification))
+
+        self.assertLess(mark_active_index, notification_index)

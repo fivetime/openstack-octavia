@@ -124,3 +124,18 @@ class TestLoadBalancerPUT(base.BaseTypesTest, TestLoadBalancer):
                 "tags": ['test_tag']}
         lb = wsme_json.fromjson(self._type, body)
         self.assertEqual(wsme_types.Unset, lb.admin_state_up)
+
+
+class TestLoadBalancerResizeRootPUT(base.BaseTypesTest):
+
+    _type = lb_type.LoadBalancerResizeRootPUT
+
+    def test_resize_load_balancer(self):
+        body = {"new_flavor_id": "6d425a5e-429f-4848-b240-ab31c6d211e4"}
+        req = wsme_json.fromjson(self._type, body)
+        self.assertEqual(req.new_flavor_id,
+                         "6d425a5e-429f-4848-b240-ab31c6d211e4")
+
+    def test_new_flavor_id_mandatory(self):
+        self.assertRaises(exc.InvalidInput, wsme_json.fromjson, self._type,
+                          {})

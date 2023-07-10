@@ -3085,3 +3085,61 @@ class GetAmphoraFirewallRules(BaseDatabaseTask):
                                   constants.PORT: 112})
         LOG.debug('Amphora %s SR-IOV firewall rules: %s', this_amp_id, rules)
         return rules
+
+
+class UpdateFlavorIdInDB(BaseDatabaseTask):
+    """Update the flavor id of a load balancer after resize.
+
+    At the end of the failover worflow in resize mode it's required to
+    update the flavor of the load balancer.
+    """
+
+    def execute(self, loadbalancer_id, new_flavor_id):
+        """Update the flavor_id of a load balancer in the DB.
+
+        :param loadbalancer_id: Id of the load balancer to update
+        :param new_flavor_id: The flavor id to record after the resize
+        :returns: The flavor_id the load balancer had before the update,
+                  so it can be restored on revert.
+        """
+        with db_apis.session().begin() as session:
+            db_lb = self.loadbalancer_repo.get(session, id=loadbalancer_id)
+            old_flavor_id = db_lb.flavor_id
+            LOG.info("Updating flavor_id of load balancer %s from %s to %s",
+                     loadbalancer_id,
+                     old_flavor_id,
+                     new_flavor_id)
+
+            self.loadbalancer_repo.update(session, loadbalancer_id,
+                                          flavor_id=new_flavor_id)
+        return old_flavor_id
+
+    def revert(self, result, loadbalancer_id, new_flavor_id, *args,
+               **kwargs):
+        """Restore the load balancer's previous flavor_id.
+
+        Per the accepted resize spec, if the resize fails the load
+        balancer must keep reporting its original flavor, so the user
+        can retry the same resize call or trigger a plain failover.
+
+        :param result: The flavor_id the load balancer had before this
+                       task ran, or a Failure if execute() itself failed.
+        :param loadbalancer_id: Id of the load balancer to revert
+        :returns: None
+        """
+        if isinstance(result, failure.Failure):
+            # This task's execute failed, so the flavor_id was never
+            # updated and there is nothing to revert.
+            return
+
+        LOG.warning("Reverting flavor_id update for load balancer %s, "
+                    "restoring flavor_id to %s", loadbalancer_id, result)
+        try:
+            with db_apis.session().begin() as session:
+                self.loadbalancer_repo.update(session, loadbalancer_id,
+                                              flavor_id=result)
+        except Exception as e:
+            LOG.error("Failed to restore flavor_id of load balancer "
+                      "%(lb)s to %(flavor)s due to: %(except)s",
+                      {'lb': loadbalancer_id, 'flavor': result,
+                       'except': str(e)})

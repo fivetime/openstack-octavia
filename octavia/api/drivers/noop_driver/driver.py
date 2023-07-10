@@ -81,6 +81,14 @@ class NoopManager:
         self.driverconfig[loadbalancer_id] = (loadbalancer_id,
                                               'loadbalancer_failover')
 
+    def loadbalancer_failover_with_flavor(self, loadbalancer_id, flavor_id):
+        LOG.debug('Provider %s no-op, loadbalancer_failover_with_flavor '
+                  'loadbalancer %s, flavor %s',
+                  self.__class__.__name__, loadbalancer_id, flavor_id)
+
+        self.driverconfig[loadbalancer_id] = (
+            loadbalancer_id, flavor_id, 'loadbalancer_failover_with_flavor')
+
     def loadbalancer_update(self, old_loadbalancer, new_loadbalancer):
         LOG.debug('Provider %s no-op, loadbalancer_update loadbalancer %s '
                   'old: %s. new: %s',
@@ -293,6 +301,10 @@ class NoopProviderDriver(driver_base.ProviderDriver):
 
     def loadbalancer_failover(self, loadbalancer_id):
         self.driver.loadbalancer_failover(loadbalancer_id)
+
+    def loadbalancer_failover_with_flavor(self, loadbalancer_id, flavor_id):
+        self.driver.loadbalancer_failover_with_flavor(loadbalancer_id,
+                                                      flavor_id)
 
     def loadbalancer_update(self, old_loadbalancer, new_loadbalancer):
         self.driver.loadbalancer_update(old_loadbalancer, new_loadbalancer)

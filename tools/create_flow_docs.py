@@ -124,7 +124,7 @@ def generate(flow_list, output_directory):
                     amp1 = amp1.to_dict()
                     amp2 = amp2.to_dict()
                 current_engine = engines.load(
-                    get_flow_method([amp1, amp2], lb))
+                    get_flow_method([amp1, amp2], lb, False))
             elif (current_tuple[1] == 'MemberFlows' and
                   current_tuple[2] == 'get_batch_update_members_flow'):
                 current_engine = engines.load(

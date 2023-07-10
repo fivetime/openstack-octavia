@@ -38,6 +38,7 @@ class TestNoopProviderDriver(base.TestCase):
         self.l7policy_id = uuidutils.generate_uuid()
         self.l7rule_id = uuidutils.generate_uuid()
         self.project_id = uuidutils.generate_uuid()
+        self.flavor_id = uuidutils.generate_uuid()
         self.default_tls_container_ref = uuidutils.generate_uuid()
         self.sni_container_ref_1 = uuidutils.generate_uuid()
         self.sni_container_ref_2 = uuidutils.generate_uuid()
@@ -175,6 +176,15 @@ class TestNoopProviderDriver(base.TestCase):
 
         self.assertEqual((self.loadbalancer_id, 'loadbalancer_failover'),
                          self.driver.driver.driverconfig[self.loadbalancer_id])
+
+    def test_loadbalancer_failover_with_flavor(self):
+        self.driver.loadbalancer_failover_with_flavor(
+            self.loadbalancer_id, self.flavor_id)
+
+        self.assertEqual(
+            (self.loadbalancer_id, self.flavor_id,
+             'loadbalancer_failover_with_flavor'),
+            self.driver.driver.driverconfig[self.loadbalancer_id])
 
     def test_loadbalancer_update(self):
         self.driver.loadbalancer_update(self.ref_lb, self.ref_lb)

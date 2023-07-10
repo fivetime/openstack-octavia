@@ -166,6 +166,11 @@ class AmphoraProviderDriver(driver_base.ProviderDriver):
         payload = {consts.LOAD_BALANCER_ID: loadbalancer_id}
         self.client.cast({}, 'failover_load_balancer', **payload)
 
+    def loadbalancer_failover_with_flavor(self, loadbalancer_id, flavor_id):
+        payload = {consts.LOAD_BALANCER_ID: loadbalancer_id,
+                   consts.FLAVOR_ID: flavor_id}
+        self.client.cast({}, 'failover_load_balancer_with_flavor', **payload)
+
     def loadbalancer_update(self, original_load_balancer, new_loadbalancer):
         # Adapt the provider data model to the queue schema
         lb_dict = new_loadbalancer.to_dict()

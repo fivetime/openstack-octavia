@@ -33,6 +33,7 @@ class TestEndpoints(base.TestCase):
         self.context = {}
         self.resource_updates = {}
         self.resource_id = 1234
+        self.new_flavor_id = 6789
         self.resource = {constants.ID: self.resource_id}
         self.server_group_id = 3456
         self.listener_dict = {constants.LISTENER_ID: uuidutils.generate_uuid()}
@@ -69,6 +70,13 @@ class TestEndpoints(base.TestCase):
         self.ep.failover_load_balancer(self.context, self.resource_id)
         self.ep.worker.failover_loadbalancer.assert_called_once_with(
             self.resource_id)
+
+    def test_failover_load_balancer_with_flavor(self):
+        self.ep.failover_load_balancer_with_flavor(self.context,
+                                                   self.resource_id,
+                                                   self.new_flavor_id)
+        self.ep.worker.failover_loadbalancer.assert_called_once_with(
+            self.resource_id, self.new_flavor_id)
 
     def test_failover_amphora(self):
         self.ep.failover_amphora(self.context, self.resource_id)

@@ -914,11 +914,9 @@ class LoadBalancersController(base.BaseController):
         neutron-lbaas LBaaS v2 API.
         """
         is_children = (
-            id and remainder and (
-                remainder[0] == 'status' or remainder[0] == 'statuses' or (
-                    remainder[0] == 'stats' or remainder[0] == 'failover'
-                )
-            )
+            id and remainder and
+            remainder[0] in {'status', 'statuses', 'stats', 'failover',
+                             'resize'}
         )
         if is_children:
             controller = remainder[0]
@@ -929,6 +927,8 @@ class LoadBalancersController(base.BaseController):
                 return StatisticsController(lb_id=id), remainder
             if controller == 'failover':
                 return FailoverController(lb_id=id), remainder
+            if controller == 'resize':
+                return ResizeController(lb_id=id), remainder
         return None
 
 
@@ -1025,3 +1025,76 @@ class FailoverController(LoadBalancersController):
                      "provider %s", self.lb_id, driver.name)
             driver_utils.call_provider(
                 driver.name, driver.loadbalancer_failover, self.lb_id)
+
+
+class ResizeController(LoadBalancersController):
+
+    def __init__(self, lb_id):
+        super().__init__()
+        self.lb_id = lb_id
+
+    @wsme_pecan.wsexpose(None,
+                         body=lb_types.LoadBalancerResizeRootPUT,
+                         status_code=202)
+    def put(self, resize_):
+        """Resize a loadbalancer"""
+        new_flavor_id = resize_.new_flavor_id
+        context = pecan_request.context.get('octavia_context')
+        with context.session.begin():
+            db_lb = self._get_db_lb(context.session, self.lb_id,
+                                    show_deleted=False)
+            db_lb_provider = db_lb.provider
+            db_lb_topology = db_lb.topology
+
+            if db_lb.flavor_id == new_flavor_id:
+                LOG.info("Load balancer %s is already with this flavor %s.",
+                         db_lb.id, new_flavor_id)
+                raise exceptions.ValidationException(
+                      detail=_("Load balancer already has this flavor."))
+
+            self._auth_validate_action(context, db_lb.project_id,
+                                       constants.RBAC_PUT_RESIZE)
+
+            new_flavor = self.repositories.flavor.get(context.session,
+                                                      id=new_flavor_id)
+            if not new_flavor:
+                raise exceptions.ValidationException(
+                    detail=_("Invalid new_flavor_id."))
+            if not new_flavor.enabled:
+                raise exceptions.DisabledOption(option='flavor',
+                                                value=new_flavor_id)
+
+            new_flavor_provider = self.repositories.flavor.get_flavor_provider(
+                context.session, new_flavor_id)
+            if new_flavor_provider != db_lb_provider:
+                raise exceptions.ProviderFlavorMismatchError(
+                    flav=new_flavor_id, prov=db_lb_provider)
+
+            new_flavor_dict = (
+                self.repositories.flavor.get_flavor_metadata_dict(
+                    context.session, new_flavor_id))
+
+        new_flavor_topology = new_flavor_dict.get(
+            constants.LOADBALANCER_TOPOLOGY,
+            CONF.controller_worker.loadbalancer_topology)
+        if new_flavor_topology != db_lb_topology:
+            raise exceptions.ValidationException(
+                detail=_("Flavor '%(flav)s' is not compatible with load "
+                         "balancer topology '%(topology)s'") %
+                {'flav': new_flavor_id, 'topology': db_lb_topology})
+
+        driver = driver_factory.get_driver(db_lb_provider)
+        if new_flavor_dict:
+            driver_utils.call_provider(driver.name, driver.validate_flavor,
+                                       new_flavor_dict)
+
+        with context.session.begin():
+            self._test_and_set_failover_prov_status(context.session,
+                                                    self.lb_id)
+            LOG.info("Sending a failover request to resize the "
+                     "load balancer "
+                     "%s to the flavor %s with provider %s",
+                     self.lb_id, new_flavor_id, driver.name)
+            driver_utils.call_provider(
+                driver.name, driver.loadbalancer_failover_with_flavor,
+                self.lb_id, new_flavor_id)

@@ -62,6 +62,8 @@ VRRP_PRIORITY = random.randrange(100)
 CACHED_ZONE = 'zone1'
 IMAGE_ID = uuidutils.generate_uuid()
 COMPUTE_FLAVOR = uuidutils.generate_uuid()
+FLAVOR_ID = uuidutils.generate_uuid()
+NEW_FLAVOR_ID = uuidutils.generate_uuid()
 
 _db_amphora_mock = mock.MagicMock()
 _db_amphora_mock.id = AMP_ID
@@ -81,6 +83,7 @@ _db_loadbalancer_mock.amphorae = [_db_amphora_mock]
 _db_loadbalancer_mock.to_dict.return_value = {
     constants.ID: LB_ID
 }
+_db_loadbalancer_mock.flavor_id = FLAVOR_ID
 _l7policy_mock = mock.MagicMock()
 _l7policy_mock.id = L7POLICY_ID
 _l7rule_mock = mock.MagicMock()
@@ -3059,3 +3062,42 @@ class TestDatabaseTasks(base.TestCase):
         self.assertRaises(exceptions.InvalidIPAddress,
                           get_amp_fw_rules.execute, [amphora_dict], 0,
                           amphora_net_cfg_dict)
+
+    @mock.patch('octavia.db.repositories.LoadBalancerRepository.get',
+                return_value=_db_loadbalancer_mock)
+    def test_update_flavor_id_in_db(self, mock_loadbalancer_repo_get,
+                                    mock_generate_uuid,
+                                    mock_LOG,
+                                    mock_get_session,
+                                    mock_loadbalancer_repo_update,
+                                    mock_listener_repo_update,
+                                    mock_amphora_repo_update,
+                                    mock_amphora_repo_delete):
+        update_loadbalancer = database_tasks.UpdateFlavorIdInDB()
+        old_flavor_id = update_loadbalancer.execute(LB_ID, NEW_FLAVOR_ID)
+
+        mock_session = mock_get_session().begin().__enter__()
+
+        mock_loadbalancer_repo_update.assert_called_once_with(
+            mock_session, LB_ID, flavor_id=NEW_FLAVOR_ID
+        )
+        self.assertEqual(FLAVOR_ID, old_flavor_id)
+
+        # Test the revert when execute() itself failed: nothing to undo
+        update_loadbalancer.revert(_tf_failure_mock, LB_ID, NEW_FLAVOR_ID)
+        mock_loadbalancer_repo_update.assert_called_once_with(
+            mock_session, LB_ID, flavor_id=NEW_FLAVOR_ID
+        )
+
+        # Test the revert when a later task failed: restore old flavor_id
+        mock_loadbalancer_repo_update.reset_mock()
+        update_loadbalancer.revert(old_flavor_id, LB_ID, NEW_FLAVOR_ID)
+        mock_loadbalancer_repo_update.assert_called_once_with(
+            mock_session, LB_ID, flavor_id=FLAVOR_ID
+        )
+
+        # Test revert with a DB exception: logged, not re-raised
+        mock_loadbalancer_repo_update.reset_mock()
+        mock_loadbalancer_repo_update.side_effect = Exception('boom')
+        update_loadbalancer.revert(old_flavor_id, LB_ID, NEW_FLAVOR_ID)
+        mock_LOG.error.assert_called_once()

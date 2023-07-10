@@ -65,6 +65,12 @@ class Endpoints:
                  amphora_id)
         self.worker.failover_amphora(amphora_id)
 
+    def failover_load_balancer_with_flavor(self, context, load_balancer_id,
+                                           flavor_id):
+        LOG.info('Resizing load balancer \'%s\' to flavor \'%s\'...',
+                 load_balancer_id, flavor_id)
+        self.worker.failover_loadbalancer(load_balancer_id, flavor_id)
+
     def create_listener(self, context, listener):
         LOG.info('Creating listener \'%s\'...',
                  listener[constants.LISTENER_ID])

@@ -1269,6 +1269,12 @@ name-optional:
   in: body
   required: false
   type: string
+new-flavor-id:
+  description: |
+    New flavor id applied by the resize.
+  in: body
+  required: true
+  type: uuid
 operating_status:
   description: |
     The operating status of the resource. See :ref:`op_status`.

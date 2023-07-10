@@ -647,3 +647,45 @@ Response
 --------
 
 There is no body content for the response of a successful failover request.
+
+Resize a load balancer
+========================
+
+.. rest_method:: PUT /v2/lbaas/loadbalancers/{loadbalancer_id}/resize
+
+Performs a resize of a load balancer to a new flavor.
+
+This operation is only available to users with load balancer administrative
+rights.
+
+.. rest_status_code:: success ../http-status.yaml
+
+   - 202
+
+.. rest_status_code:: error ../http-status.yaml
+
+   - 400
+   - 401
+   - 403
+   - 404
+   - 409
+   - 500
+
+Request
+-------
+
+.. rest_parameters:: ../parameters.yaml
+
+   - loadbalancer_id: path-loadbalancer-id
+   - new_flavor_id: new-flavor-id
+
+Curl Example
+------------
+
+.. literalinclude:: examples/loadbalancer-resize-curl
+   :language: bash
+
+Response
+--------
+
+There is no body content for the response of a successful resize request.
