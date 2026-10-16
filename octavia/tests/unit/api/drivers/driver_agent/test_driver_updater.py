@@ -17,9 +17,13 @@ from unittest.mock import call
 
 from octavia_lib.api.drivers import exceptions as driver_exceptions
 from octavia_lib.common import constants as lib_consts
+from oslo_config import cfg
+from oslo_config import fixture as oslo_fixture
 from oslo_utils import uuidutils
+from sqlalchemy.orm import exc as sa_exception
 
 from octavia.api.drivers.driver_agent import driver_updater
+from octavia.common import constants
 from octavia.common import data_models
 from octavia.common import exceptions
 import octavia.tests.unit.base as base
@@ -226,6 +230,97 @@ class TestDriverUpdater(base.TestCase):
         self.assertRaises(driver_exceptions.UpdateStatusError,
                           self.driver_updater._process_status_update,
                           mock_repo, 'FakeName', {"fake": "data"})
+
+    def _resize(self, record=None, **lb_attrs):
+        conf = self.useFixture(oslo_fixture.Config(cfg.CONF))
+        conf.config(group='controller_worker',
+                    loadbalancer_topology=constants.TOPOLOGY_SINGLE)
+        lb = self.mock_lb_repo.get.return_value
+        lb.provisioning_status = lib_consts.PENDING_UPDATE
+        lb.provider = 'incus'
+        lb.topology = constants.TOPOLOGY_SINGLE
+        lb.flavor_id = 'old'
+        for name, value in lb_attrs.items():
+            setattr(lb, name, value)
+        self.driver_updater.repos = mock.MagicMock()
+        flavors = self.driver_updater.repos.flavor
+        flavors.get_flavor_provider.return_value = 'incus'
+        flavors.get_flavor_metadata_dict.return_value = {}
+        if record is None:
+            record = {lib_consts.PROVISIONING_STATUS: lib_consts.ACTIVE,
+                      constants.FLAVOR_ID: 'new'}
+        record = dict(record, id=self.lb_id)
+        self.mock_lb_repo.update.reset_mock()
+        return flavors, lambda: self.driver_updater._process_status_update(
+            self.mock_lb_repo, lib_consts.LOADBALANCERS, record)
+
+    def _assert_written(self, **kwargs):
+        self.mock_lb_repo.update.assert_called_once_with(
+            self.mock_session, self.lb_id, **kwargs)
+
+    def test_a_completed_resize_writes_the_flavor(self):
+        _, report = self._resize()
+        report()
+        self._assert_written(provisioning_status=lib_consts.ACTIVE,
+                             flavor_id='new')
+
+    def test_a_failed_resize_keeps_the_flavor(self):
+        _, report = self._resize(
+            {lib_consts.PROVISIONING_STATUS: lib_consts.ERROR,
+             constants.FLAVOR_ID: 'new'})
+        report()
+        self._assert_written(provisioning_status=lib_consts.ERROR)
+
+    def test_a_flavor_without_a_status_is_ignored(self):
+        _, report = self._resize({constants.FLAVOR_ID: 'new'})
+        report()
+        self.mock_lb_repo.update.assert_not_called()
+
+    def test_a_flavor_outside_an_update_is_ignored(self):
+        _, report = self._resize(provisioning_status=lib_consts.ACTIVE)
+        report()
+        self._assert_written(provisioning_status=lib_consts.ACTIVE)
+
+    def test_an_unknown_flavor_is_ignored(self):
+        flavors, report = self._resize()
+        flavors.get_flavor_provider.side_effect = sa_exception.NoResultFound
+        report()
+        self._assert_written(provisioning_status=lib_consts.ACTIVE)
+
+    def test_a_flavor_of_another_provider_is_ignored(self):
+        flavors, report = self._resize()
+        flavors.get_flavor_provider.return_value = 'amphora'
+        report()
+        self._assert_written(provisioning_status=lib_consts.ACTIVE)
+
+    def test_a_flavor_of_another_topology_is_ignored(self):
+        flavors, report = self._resize()
+        flavors.get_flavor_metadata_dict.return_value = {
+            constants.LOADBALANCER_TOPOLOGY: constants.TOPOLOGY_ACTIVE_STANDBY}
+        report()
+        self._assert_written(provisioning_status=lib_consts.ACTIVE)
+
+    def test_the_topology_defaults_to_the_configured_one(self):
+        _, report = self._resize(
+            topology=constants.TOPOLOGY_ACTIVE_STANDBY)
+        report()
+        self._assert_written(provisioning_status=lib_consts.ACTIVE)
+
+    def test_the_current_flavor_is_not_rewritten(self):
+        _, report = self._resize(flavor_id='new')
+        with mock.patch.object(driver_updater.LOG, 'warning') as warning:
+            report()
+        warning.assert_not_called()
+        self._assert_written(provisioning_status=lib_consts.ACTIVE)
+
+    def test_only_load_balancers_take_a_flavor(self):
+        mock_repo = mock.MagicMock()
+        self.driver_updater._process_status_update(
+            mock_repo, lib_consts.LISTENERS,
+            {'id': 2, lib_consts.PROVISIONING_STATUS: lib_consts.ACTIVE,
+             constants.FLAVOR_ID: 'new'})
+        mock_repo.update.assert_called_once_with(
+            self.mock_session, 2, provisioning_status=lib_consts.ACTIVE)
 
     @mock.patch('octavia.api.drivers.driver_agent.driver_updater.'
                 'DriverUpdater._process_status_update')

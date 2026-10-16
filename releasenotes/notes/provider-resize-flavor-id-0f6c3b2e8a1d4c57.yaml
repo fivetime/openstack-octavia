@@ -1,0 +1,8 @@
+---
+features:
+  - |
+    Provider drivers can complete a load balancer resize: the driver-agent
+    now accepts an optional ``flavor_id`` for a load balancer in the status
+    update and records it when it comes with the ACTIVE provisioning status,
+    the load balancer is ``PENDING_UPDATE`` and the flavor has the same
+    provider and topology.

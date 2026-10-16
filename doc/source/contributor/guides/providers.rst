@@ -335,6 +335,21 @@ accepted.
          """
          raise NotImplementedError()
 
+     def loadbalancer_failover_with_flavor(self, loadbalancer_id, flavor_id):
+         """Moves a load balancer to another flavor (resize).
+
+         The driver reports the new flavor_id together with the ACTIVE
+         provisioning status that completes the resize; see the update
+         status API.
+
+         :param loadbalancer_id (string): ID of the load balancer to resize.
+         :param flavor_id (string): ID of the flavor to resize to.
+         :return: Nothing if the resize request was accepted.
+         :raises DriverError: An unexpected error occurred in the driver.
+         :raises: NotImplementedError if driver does not support request.
+         """
+         raise NotImplementedError()
+
      def loadbalancer_update(self, old_loadbalancer, new_loadbalancer):
          """Updates a load balancer.
 
@@ -1950,6 +1965,14 @@ resource. See `Octavia Provisioning Status Codes <https://docs.openstack.org/api
 
 operating_status: the observed status of the resource. See `Octavia
 Operating Status Codes <https://docs.openstack.org/api-ref/load-balancer/v2/index.html#operating-status-codes>`_.
+
+flavor_id: load balancers only, optional. A driver completing a resize
+reports the flavor it moved the load balancer to along with the ACTIVE
+provisioning status. It is recorded only while the load balancer is
+PENDING_UPDATE and only for a flavor of the same provider and topology;
+otherwise it is ignored and the status is still updated. A driver whose
+resize fails reports ERROR without it, so the load balancer keeps its
+flavor.
 
 The dictionary takes this form:
 

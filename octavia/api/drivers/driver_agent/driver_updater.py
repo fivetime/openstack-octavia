@@ -16,8 +16,10 @@ import time
 
 from octavia_lib.api.drivers import exceptions as driver_exceptions
 from octavia_lib.common import constants as lib_consts
+from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
+from sqlalchemy.orm import exc as sa_exception
 
 from octavia.common import constants as consts
 from octavia.common import data_models
@@ -26,6 +28,7 @@ from octavia.db import api as db_apis
 from octavia.db import repositories as repo
 from octavia.statistics import stats_base
 
+CONF = cfg.CONF
 LOG = logging.getLogger(__name__)
 
 
@@ -86,6 +89,44 @@ class DriverUpdater:
                                             'name': object_name})
                 lock_session.rollback()
 
+    def _flavor_change_allowed(self, lb_id, flavor_id, prov_status):
+        """Whether a provider may move a load balancer to a new flavor.
+
+        Only as the completion of a resize: the load balancer is in
+        PENDING_UPDATE, the provider reports it ACTIVE and the flavor passes
+        the checks the resize API applied. A failed resize keeps the old one.
+        """
+        lb = self.loadbalancer_repo.get(self.db_session, id=lb_id)
+        if lb is None or lb.flavor_id == flavor_id:
+            return False
+        reason = None
+        if prov_status != consts.ACTIVE:
+            reason = 'the load balancer is not reported ACTIVE'
+        elif lb.provisioning_status != consts.PENDING_UPDATE:
+            reason = 'no update is in progress'
+        else:
+            try:
+                provider = self.repos.flavor.get_flavor_provider(
+                    self.db_session, flavor_id)
+                metadata = self.repos.flavor.get_flavor_metadata_dict(
+                    self.db_session, flavor_id)
+            except sa_exception.NoResultFound:
+                reason = 'the flavor does not exist'
+            else:
+                topology = metadata.get(
+                    consts.LOADBALANCER_TOPOLOGY,
+                    CONF.controller_worker.loadbalancer_topology)
+                if provider != lb.provider:
+                    reason = 'the flavor belongs to another provider'
+                elif topology != lb.topology:
+                    reason = 'the flavor has another topology'
+        if reason:
+            LOG.warning('Ignoring flavor %(flavor)s reported for load '
+                        'balancer %(lb)s: %(reason)s.',
+                        {'flavor': flavor_id, 'lb': lb_id, 'reason': reason})
+            return False
+        return True
+
     def _process_status_update(self, repo, object_name, record,
                                delete_record=False):
         # Zero it out so that if the ID is missing from a record we do not
@@ -116,9 +157,16 @@ class DriverUpdater:
             op_status = record.get(consts.OPERATING_STATUS, None)
             if op_status:
                 record_kwargs[consts.OPERATING_STATUS] = op_status
-            if prov_status or op_status:
+            flavor_id = (record.get(consts.FLAVOR_ID)
+                         if object_name == consts.LOADBALANCERS else None)
+            if prov_status or op_status or flavor_id:
                 with self.db_session.begin():
-                    repo.update(self.db_session, record_id, **record_kwargs)
+                    if flavor_id and self._flavor_change_allowed(
+                            record_id, flavor_id, prov_status):
+                        record_kwargs[consts.FLAVOR_ID] = flavor_id
+                    if record_kwargs:
+                        repo.update(self.db_session, record_id,
+                                    **record_kwargs)
         except Exception as e:
             # We need to raise a failure here to notify the driver it is
             # sending bad status data.
@@ -135,6 +183,9 @@ class DriverUpdater:
             iod (string): ID for the object.
             provisioning_status (string): Provisioning status for the object.
             operating_status (string): Operating status for the object.
+            flavor_id (string): Load balancers only, optional. The flavor a
+            resize moved the load balancer to, reported with the ACTIVE
+            provisioning status that completes it.
         :type status: dict
         :raises: UpdateStatusError
         :returns: None
